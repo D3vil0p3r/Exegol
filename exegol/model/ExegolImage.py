@@ -1,8 +1,11 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Union
 
-from docker.models.containers import Container
-from docker.models.images import Image
+from docker.models.containers import Container as DockerContainer
+from docker.models.images import Image as DockerImage
+
+from podman.domain.containers import Container as PodmanContainer
+from podman.domain.images import Image as PodmanImage
 
 from exegol.config.DataCache import DataCache
 from exegol.console import ConsoleFormat
@@ -23,7 +26,7 @@ class ExegolImage(SelectableInterface):
                  dockerhub_data: Optional[Dict[str, Any]] = None,
                  meta_img: Optional[MetaImages] = None,
                  image_id: Optional[str] = None,
-                 docker_image: Optional[Image] = None,
+                 docker_image: Optional[Union[DockerImage, PodmanImage]] = None,
                  isUpToDate: bool = False):
         """Docker image default value"""
         # Prepare parameters
@@ -35,7 +38,7 @@ class ExegolImage(SelectableInterface):
             version_parsed = MetaImages.tagNameParsing(name)
             self.__version_specific = bool(version_parsed)
         # Init attributes
-        self.__image: Optional[Image] = docker_image
+        self.__image: Optional[Union[DockerImage, PodmanImage]] = docker_image
         self.__name: str = name
         self.__alt_name: str = ''
         self.__arch = ""
@@ -148,7 +151,7 @@ class ExegolImage(SelectableInterface):
         self.__build_date = "[bright_black]N/A[/bright_black]"
         self.__disk_size = "[bright_black]N/A[/bright_black]"
 
-    def setDockerObject(self, docker_image: Image):
+    def setDockerObject(self, docker_image: Union[DockerImage, PodmanImage]):
         """Docker object setter. Parse object to set up self configuration."""
         self.__image = docker_image
         # When a docker image exist, image is locally installed
@@ -226,7 +229,7 @@ class ExegolImage(SelectableInterface):
                     self.__profile_version = self.__image_version
 
     @classmethod
-    def parseAliasTagName(cls, image: Image) -> str:
+    def parseAliasTagName(cls, image: Union[DockerImage, PodmanImage]) -> str:
         """Create a tag name alias from labels when image's tag is lost"""
         return image.labels.get("org.exegol.tag", "<none>") + "-" + image.labels.get("org.exegol.version", "v?")
 
@@ -243,7 +246,7 @@ class ExegolImage(SelectableInterface):
         else:
             self.__custom_status = ""
 
-    def syncContainerData(self, container: Container):
+    def syncContainerData(self, container: Union[DockerContainer, PodmanContainer]):
         """Synchronization between the container and the image.
         If the image has been updated, the tag is lost,
         but it is saved in the properties of the container that still uses it."""
@@ -346,7 +349,7 @@ class ExegolImage(SelectableInterface):
                         pass
 
     @classmethod
-    def mergeImages(cls, remote_images: List[MetaImages], local_images: List[Image]) -> List['ExegolImage']:
+    def mergeImages(cls, remote_images: List[MetaImages], local_images: List[Union[DockerImage, PodmanImage]]) -> List['ExegolImage']:
         """Compare and merge local images and remote images.
         Use case to process :
             - up-to-date : "Version specific" image can use exact digest_id matching. Latest image must match corresponding tag
@@ -531,7 +534,7 @@ class ExegolImage(SelectableInterface):
             self.__digest = digest
 
     @staticmethod
-    def __parseDigest(docker_image: Image) -> str:
+    def __parseDigest(docker_image: Union[DockerImage, PodmanImage]) -> str:
         """Parse the remote image digest ID.
         Return digest id from the docker object."""
         for digest_id in docker_image.attrs["RepoDigests"]:
