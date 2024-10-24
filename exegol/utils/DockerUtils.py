@@ -404,7 +404,7 @@ class DockerUtils(metaclass=MetaSingleton):
         for img in images:
             # len tags = 0 handle exegol <none> images (nightly image lost their tag after update)
             if len(img.attrs.get('RepoTags', [])) == 0 or \
-                    ConstantConfig.IMAGE_NAME in [repo_tag.split(':')[0] for repo_tag in img.attrs.get("RepoTags", [])]:
+                    any(ConstantConfig.IMAGE_NAME in repo_tag.split(':')[0] for repo_tag in img.attrs.get("RepoTags", [])):
                 result.append(img)
                 ids.add(img.id)
 
