@@ -6,13 +6,16 @@ from typing import List, Optional, Union, cast
 import docker
 from docker import DockerClient
 from docker.errors import APIError, DockerException, NotFound, ImageNotFound
-from docker.models.images import Image
-from docker.models.volumes import Volume
-from requests import ReadTimeout
+from docker.models.images import Image as DockerImage
+from docker.models.volumes import Volume as DockerVolume
 
 import podman
 from podman import PodmanClient
 from podman.errors import APIError as PodmanAPIError, DockerException as PodmanException, NotFound as PodmanNotFound, ImageNotFound as PodmanImageNotFound
+from podman.domain.images import Image as PodmanImage
+from podman.domain.volumes import Volume as PodmanVolume
+
+from requests import ReadTimeout
 
 from exegol.config.ConstantConfig import ConstantConfig
 from exegol.config.DataCache import DataCache
@@ -143,9 +146,9 @@ class DockerUtils(metaclass=MetaSingleton):
         model.prepare()
         logger.debug(model)
         # Preload docker volume before container creation
-        for volume in model.config.gets():
+        for volume in model.config.getVolumes():
             if volume.get('Type', '?') == "volume":
-                docker_volume = self.__loadDocker(volume_path=volume['Source'], volume_name=volume['Target'])
+                docker_volume = self.__loadDockerVolume(volume_path=volume['Source'], volume_name=volume['Target'])
                 if docker_volume is None:
                     logger.warning(f"Error while creating docker volume '{volume['Target']}'")
         entrypoint, command = model.config.getEntrypointCommand()
@@ -172,7 +175,7 @@ class DockerUtils(metaclass=MetaSingleton):
                        "shm_size": model.config.shm_size,
                        "stdin_open": model.config.interactive,
                        "tty": model.config.tty,
-                       "mounts": model.config.gets(),
+                       "mounts": model.config.getVolumes(),
                        "working_dir": model.config.getWorkingDir()}
         if temporary:
             # Only the 'run' function support the "remove" parameter
@@ -238,9 +241,9 @@ class DockerUtils(metaclass=MetaSingleton):
         # In this case, ObjectNotFound is raised
         raise ObjectNotFound
 
-    # # # s Section # # #
+    # # # Volumes Section # # #
 
-    def __loadDocker(self, volume_path: str, volume_name: str) -> :
+    def __loadDockerVolume(self, volume_path: str, volume_name: str) -> Union[DockerVolume, PodmanVolume]:
         """Load or create a docker volume for exegol containers
         (must be created before the container, SDK limitation)
         Return the docker volume object"""
@@ -256,7 +259,7 @@ class DockerUtils(metaclass=MetaSingleton):
             if path != volume_path:
                 try:
                     self.__client.api.remove_volume(name=volume_name)
-                    raise NotFound(' must be reloaded')
+                    raise NotFound('Volume must be reloaded')
                 except (APIError, PodmanAPIError) as e:
                     if e.status_code == 409:
                         logger.warning("The path of the volume specified by the user is not the same as in the existing docker volume. "
@@ -264,9 +267,9 @@ class DockerUtils(metaclass=MetaSingleton):
                         logger.verbose("The volume is already used by some container and cannot be automatically removed.")
                         logger.debug(e.explanation)
                     else:
-                        raise NotFound(' must be reloaded')
+                        raise NotFound('Volume must be reloaded')
                 except ReadTimeout:
-                    logger.error(f"Received a timeout error, Docker is busy...  {volume_name} cannot be automatically removed. Please, retry later the following command:{os.linesep}"
+                    logger.error(f"Received a timeout error, Docker is busy... Volume {volume_name} cannot be automatically removed. Please, retry later the following command:{os.linesep}"
                                  f"    [orange3]docker volume rm {volume_name}[/orange3]")
         except (NotFound, PodmanNotFound):
             try:
@@ -283,7 +286,7 @@ class DockerUtils(metaclass=MetaSingleton):
                 logger.critical(err.explanation)
                 return None  # type: ignore
             except ReadTimeout:
-                logger.critical(f"Received a timeout error, Docker is busy...  {volume_name} cannot be created.")
+                logger.critical(f"Received a timeout error, Docker is busy... Volume {volume_name} cannot be created.")
                 return  # type: ignore
         except (APIError, PodmanAPIError) as err:
             logger.critical(f"Unexpected error by Docker SDK : {err}")
@@ -380,7 +383,7 @@ class DockerUtils(metaclass=MetaSingleton):
             logger.critical(f"The desired image is not installed or do not exist ({ConstantConfig.IMAGE_NAME}:{tag}). Exiting.")
         return  # type: ignore
 
-    def __listLocalImages(self, tag: Optional[str] = None) -> List[Image]:
+    def __listLocalImages(self, tag: Optional[str] = None) -> List[Union[DockerImage, PodmanImage]]:
         """List local docker images already installed.
         Return a list of docker images objects"""
         logger.debug("Fetching local image tags, digests (and other attributes)")
@@ -418,7 +421,7 @@ class DockerUtils(metaclass=MetaSingleton):
                 ids.add(img.id)
         return result
 
-    def __findLocalRecoveryImages(self, include_untag: bool = False) -> List[Image]:
+    def __findLocalRecoveryImages(self, include_untag: bool = False) -> List[Union[DockerImage, PodmanImage]]:
         """This method try to recovery untagged docker images.
         Set include_untag option to recover images with a valid RepoDigest (no not dangling) but without tag."""
         try:
@@ -512,13 +515,11 @@ class DockerUtils(metaclass=MetaSingleton):
             logger.debug(f"Downloading {ConstantConfig.IMAGE_NAME}:{name} ({image.getArch()})")
             try:
                 ExegolTUI.downloadDockerLayer(
-                    self.__client.images.pull(
-                            repository=ConstantConfig.IMAGE_NAME,  # Image name from config
-                            tag=name,  # Tag (e.g., 'latest')
-                            stream=True,  # Stream the output
-                            decode=True,  # Stream the output
-                            platform="linux/" + image.getArch(),  # Platform (e.g., 'linux/amd64')
-                        ))
+                    self.__client.api.pull(repository=ConstantConfig.IMAGE_NAME,
+                                           tag=name,
+                                           stream=True,
+                                           decode=True,
+                                           platform="linux/" + image.getArch()))
                 logger.success(f"Image successfully {'installed' if install_mode else 'updated'}")
                 # Remove old image
                 if not install_mode and image.isInstall() and UserConfig().auto_remove_images:
