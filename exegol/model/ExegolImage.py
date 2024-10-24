@@ -538,7 +538,7 @@ class ExegolImage(SelectableInterface):
         """Parse the remote image digest ID.
         Return digest id from the docker object."""
         for digest_id in docker_image.attrs["RepoDigests"]:
-            if digest_id.startswith(ConstantConfig.IMAGE_NAME):  # Find digest id from the right repository
+            if ConstantConfig.IMAGE_NAME in digest_id:  # Find digest id from the right repository
                 return digest_id.split('@')[1]
         return ""
 
@@ -555,9 +555,14 @@ class ExegolImage(SelectableInterface):
         return self.__profile_digest
 
     def __setImageId(self, image_id: Optional[str]):
-        """Local image id setter"""
+        """Local image id setter for both Docker and Podman"""
         if image_id is not None:
-            self.__image_id = image_id.split(":")[1][:12]
+            # Check if the image_id contains a colon (as in Docker's format)
+            if ":" in image_id:
+                self.__image_id = image_id.split(":")[1][:12]
+            else:
+                # For Podman, where image_id does not contain the 'sha256:' prefix
+                self.__image_id = image_id[:12]
 
     def getLocalId(self) -> str:
         """Local id getter"""
