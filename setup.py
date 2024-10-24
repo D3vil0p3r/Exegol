@@ -56,6 +56,7 @@ setup(
     ],
     install_requires=[
         'docker~=7.1.0',
+        'docker~=5.2.0',
         'requests~=2.32.3',
         'rich~=13.7.1',
         'GitPython~=3.1.43',
